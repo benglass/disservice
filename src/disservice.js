@@ -28,6 +28,7 @@
 
         // Hash of service instances
         var _services = {};
+        var _aliases = {};
 
         // Hash of parameters
         var _params = params || {};
@@ -39,12 +40,18 @@
 
         // Determine if service instance exists
         var _serviceExists = function(name) {
-            return name in _services;
+            return name in _services || name in _aliases;
+        };
+
+        // Get a service by name or alias
+        var _get = function(name) {
+            name = name in _aliases ? _aliases[name] : name;
+            return name in _services ? _services[name] : null;
         };
 
         // Create a new service from a provider
         var _createService = function(name) {
-            if (!_providerExists(name)) throw 'Provider not found for service: ' + name;
+            if (!_providerExists(name)) throw new Error('Provider not found for service: ' + name);
             return _services[name] = _serviceProviders[name].apply(_ds);
         };
 
@@ -53,16 +60,58 @@
             return !!(arg && arg.constructor && arg.call && arg.apply)
         };
 
+        /**
+         * Function for extracting argument names from a function
+         */
+        var FN_ARGS = /^function\s*[^\(]*\(\s*([^\)]*)\)/m;
+        var FN_ARG_SPLIT = /,/;
+        var FN_ARG = /^\s*(_?)(.+?)\1\s*$/;
+        var STRIP_COMMENTS = /((\/\/.*$)|(\/\*[\s\S]*?\*\/))/mg;
+        var annotate = function(fn) {
+            var $inject,
+            fnText,
+            argDecl,
+            last;
+
+            if (typeof fn == 'function') {
+                if (!($inject = fn.$inject)) {
+                    $inject = [];
+                    fnText = fn.toString().replace(STRIP_COMMENTS, '');
+                    argDecl = fnText.match(FN_ARGS);
+                    argDecl[1].split(FN_ARG_SPLIT).forEach(function(arg){
+                        arg.replace(FN_ARG, function(all, underscore, name){
+                            $inject.push(name);
+                        });
+                    });
+                    fn.$inject = $inject;
+                }
+            } else if (isArray(fn)) {
+                last = fn.length - 1;
+                $inject = fn.slice(0, last);
+            }
+            return $inject;
+        }
+
         // Add a new service provider
         this.add = function(name, service) {
-            if (_providerExists(name)) throw 'Service already exists with name: ' + name;
+            if (_providerExists(name)) throw new Error('Service already exists with name: ' + name);
             _serviceProviders[name] = service;
             return this;
         };
 
+        // Create an alias for a service
+        this.alias = function(alias, name) {
+            return _alias[alias] = name;
+        };
+
+        // Check if a service exists
+        this.has = function(name) {
+            return _serviceExists(name) || _providerExists(name);
+        };
+
         // Get a service
         this.get = function(name) {
-            return _serviceExists(name) ? _services[name] : _createService(name);
+            return _serviceExists(name) ? _get(name) : _createService(name);
         };
 
         // Set a parameter
@@ -73,7 +122,7 @@
 
         // Get a parameter
         this.getParameter = function(key) {
-            if (!(key in _params)) throw 'Invalid parameter ' + key;
+            if (!this.hasParameter(key)) throw new Error('Invalid parameter ' + key);
 
             // If the parameter is a function, use it to lazy load it to a scalar value
             if (_isFunction(_params[key])) {
@@ -81,6 +130,43 @@
             }
 
             return _params[key];
+        };
+
+        // Check if a service exists
+        this.hasParameter = function(name) {
+            return name in _params;
+        };
+
+        // Inject a function with dependencies
+        this.getParameter = function(key) {
+            if (!(key in _params)) throw new Error('Invalid parameter ' + key);
+
+            // If the parameter is a function, use it to lazy load it to a scalar value
+            if (_isFunction(_params[key])) {
+                this.setParameter(key, _params[key].apply(this));
+            }
+
+            return _params[key];
+        };
+
+        this.inject = function(fn, defaults) {
+            var args = [],
+                diArgs = annotate(fn),
+                defaults = defaults || {},
+                arg;
+            for (x in diArgs) {
+                arg = diArgs[x];
+                if (arg in defaults) {
+                    args.push(defaults[arg]);
+                } else if (this.has(arg)) {
+                    args.push(this.get(arg));
+                } else if (this.hasParameter(arg)) {
+                    args.push(this.getParameter(arg));
+                } else {
+                    throw new Error('Could not find service or parameter named ' + arg);
+                }
+            }
+            return fn.apply(fn, args);
         };
     };
 
