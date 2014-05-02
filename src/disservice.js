@@ -101,7 +101,7 @@
 
         // Create an alias for a service
         this.alias = function(alias, name) {
-            return _alias[alias] = name;
+            return _aliases[alias] = name;
         };
 
         // Check if a service exists

@@ -37,6 +37,23 @@ describe('Disservice', function() {
 
     });
 
+    describe('#alias()', function() {
+
+        it('should add an alias for a service', function() {
+            var di = new Disservice();
+            di.add('adder', function() {
+                return function(a, b) {
+                    return a + b;
+                };
+            });
+            di.alias('myAdder', 'adder');
+            var adder = di.get('adder');
+            var myAdder = di.get('myAdder');
+            assert.equal(adder, myAdder);
+        });
+
+    });
+
     describe('#inject()', function() {
 
         it('should inject a service into a function', function() {
